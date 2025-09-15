@@ -1,0 +1,14 @@
+# Ignore local environment & misc
+venv
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.swp
+.DS_Store
+.git
+.gitignore
+scratch.txt
+# Exclude local files content by default; mount at runtime
+files/*
