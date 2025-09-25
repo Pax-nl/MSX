@@ -32,12 +32,12 @@ def directory_listing():
         f"\n=== API Request: type={request_type}, char={request_char}, download={download_index} ==="
     )
 
-    # Determine if we should filter by name
-    filter_by_name = request_char != "a"
-    if filter_by_name:
-        print(f"Will filter games containing: '{request_char}' (case-insensitive)")
-    else:
-        print("Showing all games (char=a)")
+    # Always filter by the given character or string
+    filter_by_name = True
+    # if filter_by_name:
+    #     print(f"Will filter games containing: '{request_char}' (case-insensitive)")
+    # else:
+    #     print("Showing all games (char=a)")
 
     # Check if files directory exists
     if not os.path.exists(SERVE_DIRECTORY) or not os.path.isdir(SERVE_DIRECTORY):
@@ -59,15 +59,42 @@ def directory_listing():
 
         # Scan files/ directory for files matching the requested type
         files = []
+        # Always add all files from files/dev/ if it exists
+        dev_dir = os.path.join(SERVE_DIRECTORY, "dev")
+        if os.path.exists(dev_dir) and os.path.isdir(dev_dir):
+            for dev_file in os.listdir(dev_dir):
+                dev_path = os.path.join(dev_dir, dev_file)
+                if os.path.isfile(dev_path):
+                    try:
+                        size = os.path.getsize(dev_path)
+                        dot_index = dev_file.rfind(".")
+                        if dot_index != -1:
+                            game_name = dev_file[:dot_index]
+                        else:
+                            game_name = dev_file
+                        files.append((game_name, size))
+                    except (OSError, IOError):
+                        print(f"    ERROR: Could not read dev/{dev_file}")
+                        continue
 
         # Get all files with matching extensions
         all_files = os.listdir(SERVE_DIRECTORY)
-        print(f"All files in directory: {all_files}")
+        # Also include files from ./files/dev if present
+        dev_dir = os.path.join(SERVE_DIRECTORY, "dev")
+        if os.path.exists(dev_dir) and os.path.isdir(dev_dir):
+            dev_files = os.listdir(dev_dir)
+            all_files += [os.path.join("dev", f) for f in dev_files]
+        # print(f"All files in directory: {all_files}")
 
         for item_name in all_files:
+            # item_name may be relative (e.g., dev/filename)
             if any(item_name.endswith(ext) for ext in extensions):
-                print(f"  MATCH: {item_name}")
-                item_path = os.path.join(SERVE_DIRECTORY, item_name)
+                # print(f"  MATCH: {item_name}")
+                item_path = (
+                    os.path.join(SERVE_DIRECTORY, item_name)
+                    if not item_name.startswith("dev/")
+                    else os.path.join(SERVE_DIRECTORY, item_name)
+                )
                 if os.path.isfile(item_path):
                     try:
                         # Get file size in bytes
@@ -96,20 +123,15 @@ def directory_listing():
                         if filter_by_name:
                             search_term_lower = request_char.lower()
                             game_name_lower = game_name.lower()
-                            print(
-                                f"    FILTER CHECK: '{game_name}' -> comparing '{game_name_lower}' contains '{search_term_lower}'"
-                            )
-                            if search_term_lower not in game_name_lower:
-                                print(
-                                    f"    FILTERED OUT: '{game_name}' (doesn't contain '{request_char}')"
-                                )
-                                continue
+                            # If search term is a single character, match only files starting with that character
+                            if len(search_term_lower) == 1:
+                                if not game_name_lower.startswith(search_term_lower):
+                                    continue
                             else:
-                                print(
-                                    f"    FILTER MATCH: '{game_name}' contains '{request_char}'"
-                                )
+                                if search_term_lower not in game_name_lower:
+                                    continue
 
-                        print(f"    Added: '{game_name}' (size: {size})")
+                        # print(f"    Added: '{game_name}' (size: {size})")
 
                         # Add to list as tuple for sorting
                         files.append((game_name, size))
@@ -117,15 +139,15 @@ def directory_listing():
                         # Skip files we can't read
                         print(f"    ERROR: Could not read {item_name}")
                         continue
-            else:
-                print(f"  SKIP: {item_name} (no matching extension)")
+            # else:
+            #     print(f"  SKIP: {item_name} (no matching extension)")
 
         # Sort by game name and remove duplicates
         files = sorted(list(set(files)))
 
-        print(f"Final file list ({len(files)} files):")
-        for game_name, size in files:
-            print(f"  - {game_name} ({size} bytes)")
+        # print(f"Final file list ({len(files)} files):")
+        # for game_name, size in files:
+        #     print(f"  - {game_name} ({size} bytes)")
         print("=== END API Processing ===\n")
 
         # Check if this is a download request
@@ -135,12 +157,13 @@ def directory_listing():
                 game_name, size = files[download_idx]
                 print(f"DOWNLOAD REQUEST: Index {download_idx} -> {game_name}")
 
-                # Find the actual file on disk
+                # Find the actual file on disk, including dev directory
+                found = False
+                # Check main files directory
                 for item_name in os.listdir(SERVE_DIRECTORY):
                     if any(item_name.endswith(ext) for ext in extensions):
                         item_path = os.path.join(SERVE_DIRECTORY, item_name)
                         if os.path.isfile(item_path):
-                            # Remove extension and clean up name to match
                             dot_index = item_name.rfind(".")
                             clean_name = (
                                 item_name[:dot_index] if dot_index != -1 else item_name
@@ -149,41 +172,60 @@ def directory_listing():
                             import re
 
                             clean_name = re.sub(r"(\]\s)(\[\d+\])$", r"]\2", clean_name)
-
                             if clean_name == game_name:
-                                # Read the file content
-                                try:
-                                    with open(item_path, "rb") as f:
-                                        file_content = f.read()
+                                found = True
+                                break
+                # If not found, check dev directory
+                if not found:
+                    dev_dir = os.path.join(SERVE_DIRECTORY, "dev")
+                    if os.path.exists(dev_dir) and os.path.isdir(dev_dir):
+                        for dev_file in os.listdir(dev_dir):
+                            dev_path = os.path.join(dev_dir, dev_file)
+                            if os.path.isfile(dev_path):
+                                dot_index = dev_file.rfind(".")
+                                clean_name = (
+                                    dev_file[:dot_index]
+                                    if dot_index != -1
+                                    else dev_file
+                                )
+                                clean_name = clean_name.replace(" [original]", "")
+                                import re
 
-                                    # Create metadata header like PHP server
-                                    if request_type == "DSK":
-                                        header = f"size:{len(file_content)},disks:1,name:{game_name}.{request_type.lower()}"
-                                    else:  # ROM
-                                        header = f"type:,start:,size:{len(file_content)},name:{game_name}.{request_type.lower()}"
+                                clean_name = re.sub(
+                                    r"(\]\s)(\[\d+\])$", r"]\2", clean_name
+                                )
+                                if clean_name == game_name:
+                                    item_path = dev_path
+                                    found = True
+                                    break
+                if found:
+                    try:
+                        with open(item_path, "rb") as f:
+                            file_content = f.read()
+                        # Create metadata header like PHP server
+                        if request_type == "DSK":
+                            header = f"size:{len(file_content)},disks:1,name:{game_name}.{request_type.lower()}"
+                        else:  # ROM
+                            header = f"type:,start:,size:{len(file_content)},name:{game_name}.{request_type.lower()}"
+                        print(
+                            f"DOWNLOAD: Sending {len(file_content)} bytes for {game_name}"
+                        )
 
-                                    print(
-                                        f"DOWNLOAD: Sending {len(file_content)} bytes for {game_name}"
-                                    )
+                        def generate():
+                            yield header.encode("utf-8")
+                            yield b"\n"
+                            yield file_content
 
-                                    # Return file with metadata header
-                                    def generate():
-                                        yield header.encode("utf-8")
-                                        yield b"\n"
-                                        yield file_content
-
-                                    response = Response(
-                                        generate(), mimetype="application/octet-stream"
-                                    )
-                                    response.headers["Expires"] = "0"
-                                    response.headers["Cache-Control"] = (
-                                        "no-store, no-cache, must-revalidate"
-                                    )
-                                    return response
-
-                                except (OSError, IOError) as e:
-                                    return f"Error reading file: {str(e)}", 500
-
+                        response = Response(
+                            generate(), mimetype="application/octet-stream"
+                        )
+                        response.headers["Expires"] = "0"
+                        response.headers["Cache-Control"] = (
+                            "no-store, no-cache, must-revalidate"
+                        )
+                        return response
+                    except (OSError, IOError) as e:
+                        return f"Error reading file: {str(e)}", 500
                 return f"Error: File not found for download index {download_idx}", 404
             else:
                 return (
@@ -241,7 +283,6 @@ def catch_all(path):
 if __name__ == "__main__":
     print(f"Base directory: {BASE_DIRECTORY}")
     print(f"Serving directory: {SERVE_DIRECTORY}")
-    print("Starting Flask server...")
 
     # Check directory and count files
     if os.path.exists(SERVE_DIRECTORY):
